@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>MST Visualizer</title>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      background: linear-gradient(135deg, #1a1c2c, #3a3f58);
+      font-family: "Segoe UI", sans-serif;
+      display: flex;
+      flex-direction: column;
+      color: #eaeaf0;
+      overflow: hidden;
+    }
+    header {
+      padding: 1rem;
+      text-align: center;
+      font-size: 1.8rem;
+      background: rgba(255,255,255,0.08);
+      backdrop-filter: blur(8px);
+    }
+    #controls {
+      padding: 1rem;
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      background: rgba(255,255,255,0.05);
+      z-index: 2;
+    }
+    label {
+      font-size: 0.9rem;
+    }
+    input {
+      width: 60px;
+      margin-left: 4px;
+      border: none;
+      border-radius: 6px;
+      padding: 0.2rem;
+      text-align: center;
+    }
+    button {
+      padding: 0.6rem 1.2rem;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: bold;
+      background: #7c6cff;
+      color: white;
+      transition: background 0.3s, transform 0.2s, box-shadow 0.3s;
+    }
+    button:hover {
+      background: #9b8dff;
+      transform: scale(1.08);
+      box-shadow: 0 0 12px rgba(156,141,255,0.7);
+    }
+    #svg {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      background: #222433;
+      z-index: 1;
+    }
+    .node {
+      fill: #7c6cff;
+      stroke: white;
+      stroke-width: 2;
+    }
+    .edge {
+      stroke: #7d8aa5;
+      stroke-width: 2;
+    }
+    .mst-edge {
+      stroke: #00ff99;
+      stroke-width: 3;
+    }
+    .rejected-edge {
+      stroke: #ff5e5e;
+      stroke-dasharray: 5,5;
+    }
+
+    /* Continuous bubbles */
+    .bubble {
+      position: absolute;
+      bottom: 0;
+      border-radius: 50%;
+      opacity: 0.6;
+      animation: rise 6s linear forwards;
+      pointer-events: none;
+      z-index: 0;
+    }
+    @keyframes rise {
+      from { transform: translateY(0) scale(0.5); opacity: 0.6; }
+      to { transform: translateY(-100vh) scale(1); opacity: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header>Minimum Spanning Tree Visualizer</header>
+  <div id="controls">
+    <label>Nodes: <input type="number" id="nodesInput" value="8" min="3" max="20"></label>
+    <label>Edge Prob: <input type="number" id="probInput" value="0.4" min="0.1" max="1" step="0.1"></label>
+    <label>Weight Min: <input type="number" id="weightMin" placeholder="1"></label>
+    <label>Weight Max: <input type="number" id="weightMax" placeholder="20"></label>
+    <button onclick="generateGraphFromInput()">Generate Graph</button>
+    <button onclick="runKruskal()">Run Kruskal</button>
+    <button onclick="runPrim()">Run Prim</button>
+  </div>
+  <svg id="svg" viewBox="0 0 1200 720" preserveAspectRatio="xMidYMid meet"></svg>
+
+  <script>
+    const svg = document.getElementById("svg");
+    let currentGraph = null;
+
+    function el(name, attrs) {
+      const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+      for (let key in attrs) {
+        element.setAttribute(key, attrs[key]);
+      }
+      return element;
+    }
+
+    function generateGraph(nodeCount = 8, edgeProb = 0.4, weightMin = 1, weightMax = 20) {
+      svg.innerHTML = ""; // clear old graph
+      const nodes = [];
+      const edges = [];
+
+      // create nodes
+      for (let i = 0; i < nodeCount; i++) {
+        nodes.push({
+          id: i,
+          x: Math.random() * 1100 + 50,
+          y: Math.random() * 600 + 50
+        });
+      }
+
+      // create edges with random weights
+      for (let i = 0; i < nodeCount; i++) {
+        for (let j = i + 1; j < nodeCount; j++) {
+          if (Math.random() < edgeProb) {
+            edges.push({
+              u: i,
+              v: j,
+              weight: Math.floor(Math.random() * (weightMax - weightMin + 1)) + weightMin
+            });
+          }
+        }
+      }
+
+      currentGraph = { nodes, edges };
+      drawGraph(nodes, edges);
+    }
+
+    function drawGraph(nodes, edges) {
+      // draw edges
+      edges.forEach(edge => {
+        const u = nodes[edge.u], v = nodes[edge.v];
+        const line = el("line", {
+          x1: u.x, y1: u.y, x2: v.x, y2: v.y,
+          class: "edge"
+        });
+        svg.appendChild(line);
+
+        // label weight
+        const midX = (u.x + v.x) / 2;
+        const midY = (u.y + v.y) / 2;
+        const label = el("text", {
+          x: midX, y: midY,
+          fill: "white",
+          "font-size": "14",
+          "text-anchor": "middle",
+          dy: "-4"
+        });
+        label.textContent = edge.weight;
+        svg.appendChild(label);
+
+        edge.line = line;
+      });
+
+      // draw nodes
+      nodes.forEach(node => {
+        const circle = el("circle", {
+          cx: node.x, cy: node.y,
+          r: 18,
+          class: "node"
+        });
+        svg.appendChild(circle);
+
+        const text = el("text", {
+          x: node.x, y: node.y + 5,
+          "text-anchor": "middle",
+          "font-size": "14",
+          fill: "white"
+        });
+        text.textContent = node.id;
+        svg.appendChild(text);
+      });
+    }
+
+    // DSU for Kruskal
+    class DSU {
+      constructor(n) {
+        this.parent = Array(n).fill(0).map((_, i) => i);
+      }
+      find(x) {
+        if (this.parent[x] !== x) this.parent[x] = this.find(this.parent[x]);
+        return this.parent[x];
+      }
+      union(x, y) {
+        let xr = this.find(x), yr = this.find(y);
+        if (xr === yr) return false;
+        this.parent[yr] = xr;
+        return true;
+      }
+    }
+
+    async function runKruskal() {
+      if (!currentGraph) return;
+      const { nodes, edges } = currentGraph;
+      const dsu = new DSU(nodes.length);
+      const sorted = [...edges].sort((a,b) => a.weight - b.weight);
+
+      for (let edge of sorted) {
+        await new Promise(r => setTimeout(r, 800));
+        if (dsu.union(edge.u, edge.v)) {
+          edge.line.setAttribute("class", "mst-edge");
+        } else {
+          edge.line.setAttribute("class", "rejected-edge");
+        }
+      }
+    }
+
+    async function runPrim() {
+      if (!currentGraph) return;
+      const { nodes, edges } = currentGraph;
+      const inMST = Array(nodes.length).fill(false);
+      inMST[0] = true;
+      let mstEdges = [];
+
+      while (mstEdges.length < nodes.length - 1) {
+        let minEdge = null;
+        for (let edge of edges) {
+          if (inMST[edge.u] ^ inMST[edge.v]) {
+            if (!minEdge || edge.weight < minEdge.weight) {
+              minEdge = edge;
+            }
+          }
+        }
+        if (!minEdge) break;
+        mstEdges.push(minEdge);
+        inMST[minEdge.u] = inMST[minEdge.v] = true;
+
+        await new Promise(r => setTimeout(r, 800));
+        minEdge.line.setAttribute("class", "mst-edge");
+      }
+    }
+
+    // Generate initial graph
+    generateGraph();
+
+    // Generate graph from input values
+    function generateGraphFromInput() {
+      const n = parseInt(document.getElementById("nodesInput").value);
+      const p = parseFloat(document.getElementById("probInput").value);
+      let wmin = parseInt(document.getElementById("weightMin").value);
+      let wmax = parseInt(document.getElementById("weightMax").value);
+
+      if (isNaN(wmin)) wmin = 1;
+      if (isNaN(wmax)) wmax = 20;
+
+      generateGraph(n, p, wmin, wmax);
+    }
+
+    // Continuous bubbles
+    function spawnBubble() {
+      const bubble = document.createElement("div");
+      bubble.classList.add("bubble");
+      const size = Math.random() * 20 + 10;
+      bubble.style.width = bubble.style.height = size + "px";
+      bubble.style.left = Math.random() * window.innerWidth + "px";
+      bubble.style.background = `hsl(${Math.random()*360}, 70%, 70%)`;
+      document.body.appendChild(bubble);
+      setTimeout(() => bubble.remove(), 6000);
+    }
+    setInterval(spawnBubble, 400);
+  </script>
+</body>
+</html>
