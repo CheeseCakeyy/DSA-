@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>MST Step Visualizer — Kruskal & Prim</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root{
+    --bg1:#0b1020; --bg2:#10203a; --panel: rgba(255,255,255,0.04);
+    --muted:#a9b2c7; --accent:#7c6cff; --good:#35d39e; --bad:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;font-family:Inter,Segoe UI,system-ui,Arial;color:#eaf0ff;background:linear-gradient(180deg,var(--bg1),var(--bg2));}
+  .app{display:grid;grid-template-columns:360px 1fr;grid-template-rows:auto 1fr;gap:14px;height:100vh;padding:14px;}
+  header{grid-column:1/-1;padding:12px;border-radius:12px;background:var(--panel);display:flex;justify-content:space-between;align-items:center}
+  header h1{margin:0;font-size:18px;display:flex;gap:10px;align-items:center}
+  .controls{padding:12px;background:var(--panel);border-radius:12px;display:grid;gap:10px}
+  .controls label{font-size:13px;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
+  .controls input[type="number"], select{padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit}
+  .row{display:flex;gap:8px;align-items:center}
+  button{padding:8px 12px;border-radius:10px;border:none;background:linear-gradient(90deg,var(--accent),#18c4ff);color:#041026;font-weight:700;cursor:pointer;transition:transform .14s, box-shadow .14s}
+  button:hover{transform:translateY(-3px);box-shadow:0 12px 28px rgba(28,20,80,0.35)}
+  .side{display:flex;flex-direction:column;gap:12px}
+  .panel{background:var(--panel);padding:12px;border-radius:12px;overflow:auto}
+  .edge-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+  .edge-item{display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:8px;background:rgba(255,255,255,0.02);font-size:13px}
+  .edge-item.consider{background:linear-gradient(90deg,#ffd97212,#ffd97222);border:1px solid rgba(255,217,114,0.12)}
+  .edge-item.accept{background:linear-gradient(90deg,#bff8df22,#bff8df11);border:1px solid rgba(53,211,158,0.12)}
+  .edge-item.reject{opacity:0.6;text-decoration:line-through;color:#999}
+  .status{font-size:13px;color:var(--muted)}
+  /* main canvas */
+  .canvas{position:relative;background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);border-radius:12px;overflow:hidden}
+  svg{width:100%;height:100%}
+  .node{fill:#0b1020;stroke:white;stroke-width:2;cursor:default}
+  .node.active{filter:drop-shadow(0 6px 16px rgba(124,108,255,0.12));}
+  .edge-line{stroke:#7d8aa5;stroke-width:2;opacity:0.9}
+  .edge-consider{stroke:#ffd166;stroke-width:4;opacity:1}
+  .edge-accept{stroke:var(--good);stroke-width:4;opacity:1}
+  .edge-reject{stroke:var(--bad);stroke-dasharray:6 6;stroke-width:3;opacity:0.8}
+  /* playback controls */
+  .play-controls{display:flex;gap:8px;align-items:center}
+  input[type="range"]{width:140px}
+  /* bubbles */
+  .bubble{position:absolute;bottom:-40px;border-radius:50%;opacity:0.45;pointer-events:none;animation:rise 6s linear infinite}
+  @keyframes rise{from{transform:translateY(0) scale(.6);opacity:.6}to{transform:translateY(-110vh) scale(1);opacity:0}}
+  /* responsive */
+  @media (max-width:980px){.app{grid-template-columns:1fr;grid-template-rows:auto auto 1fr}.side{order:2}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Minimum Spanning Tree — Step Visualizer <span style="font-size:12px;color:var(--muted)">Kruskal & Prim</span></h1>
+    <div style="display:flex;gap:10px;align-items:center">
+      <div class="status" id="statusText">Ready — generate a graph to begin.</div>
+    </div>
+  </header>
+
+  <!-- LEFT / SIDE -->
+  <aside class="side" style="grid-column:1">
+    <div class="controls panel">
+      <div class="row"><label>Algorithm
+        <select id="algo">
+          <option value="kruskal">Kruskal (visual steps)</option>
+          <option value="prim">Prim (visual steps)</option>
+        </select>
+      </label></div>
+
+      <div class="row"><label>Nodes <input id="nodesInput" type="number" value="8" min="3" max="20" /></label></div>
+      <div class="row"><label>Edge Prob <input id="probInput" type="number" value="0.45" min="0.05" max="1" step="0.05" /></label></div>
+      <div class="row"><label>Weight min <input id="wmin" type="number" placeholder="1" /></label><label>Weight max <input id="wmax" type="number" placeholder="20" /></label></div>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+        <button id="genBtn">Generate</button>
+        <button id="playBtn">Play</button>
+        <button id="stepBtn">Next Step</button>
+        <button id="resetBtn">Reset</button>
+      </div>
+
+      <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
+        <div class="status">Speed</div>
+        <input id="speed" type="range" min="200" max="1400" value="900" />
+      </div>
+      <div style="margin-top:8px" class="status">Tip: Use <b>Next Step</b> to manually step, or Play to autoplay.</div>
+    </div>
+
+    <!-- Edge list / algorithm log -->
+    <div class="panel" style="min-height:220px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <strong>Edge List (sorted)</strong>
+        <span id="mstWeight" class="status">MST Weight: —</span>
+      </div>
+      <ul id="edgeList" class="edge-list"></ul>
+    </div>
+
+    <div class="panel">
+      <div><strong>Algorithm Log</strong></div>
+      <div id="log" style="font-size:13px;color:var(--muted);margin-top:8px;height:110px;overflow:auto"></div>
+    </div>
+  </aside>
+
+  <!-- RIGHT / Canvas -->
+  <main class="canvas panel" style="grid-column:2;position:relative">
+    <svg id="svg" viewBox="0 0 1200 720" preserveAspectRatio="xMidYMid meet"></svg>
+    <!-- bubbles container (z-index behind svg content visually since svg covers) -->
+    <div id="bubbles" style="position:absolute;inset:0;pointer-events:none"></div>
+  </main>
+</div>
+
+<script>
+/* ---------- Utilities ---------- */
+const svg = document.getElementById('svg');
+const edgeListEl = document.getElementById('edgeList');
+const logEl = document.getElementById('log');
+const statusText = document.getElementById('statusText');
+const mstWeightEl = document.getElementById('mstWeight');
+const speedInput = document.getElementById('speed');
+
+function rand(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+function appendLog(txt){ const d = document.createElement('div'); d.textContent = txt; logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight; }
+
+/* ---------- Graph generation ---------- */
+let G = null; // {nodes:[], edges:[]}
+function generateGraph(n=8, prob=0.45, wmin=1, wmax=20) {
+  svg.innerHTML=''; edgeListEl.innerHTML=''; logEl.innerHTML=''; mstWeightEl.textContent='MST Weight: —';
+  statusText.textContent = 'Generating graph...';
+  // place nodes on circle for clarity
+  const cx=600, cy=360, r= Math.min(480, Math.max(200, n*30));
+  const nodes = [];
+  for(let i=0;i<n;i++){
+    const ang = (2*Math.PI*i)/n;
+    nodes.push({id:i, x: cx + r*Math.cos(ang), y: cy + r*Math.sin(ang)});
+  }
+  const edges=[];
+  for(let i=0;i<n;i++){
+    for(let j=i+1;j<n;j++){
+      if(Math.random() < prob){
+        edges.push({u:i, v:j, w: Math.floor(Math.random()*(wmax-wmin+1))+wmin});
+      }
+    }
+  }
+  // ensure connectivity cheaply: create chain
+  for(let i=1;i<n;i++){
+    if(!edges.some(e => (e.u===i-1&&e.v===i)||(e.u===i&&e.v===i-1))){
+      edges.push({u:i-1,v:i,w: rand(wmin,wmax)});
+    }
+  }
+  G = {nodes, edges};
+  drawGraph();
+  statusText.textContent='Graph generated. Choose algorithm and play or step.';
+}
+
+/* ---------- Draw graph ---------- */
+function drawGraph(){
+  svg.innerHTML='';
+  // edges first
+  for(const e of G.edges){
+    const a = G.nodes[e.u], b = G.nodes[e.v];
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('id', `edge-${e.u}-${e.v}`);
+    line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
+    line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
+    line.setAttribute('class','edge-line');
+    line.setAttribute('stroke','#7d8aa5'); line.setAttribute('stroke-width',2);
+    svg.appendChild(line);
+    // weight label
+    const txt = document.createElementNS('http://www.w3.org/2000/svg','text');
+    txt.setAttribute('x', (a.x+b.x)/2); txt.setAttribute('y', (a.y+b.y)/2 - 6);
+    txt.setAttribute('text-anchor','middle'); txt.setAttribute('fill','#cfe6ff'); txt.setAttribute('font-size','12');
+    txt.textContent = e.w;
+    svg.appendChild(txt);
+  }
+  // nodes on top
+  for(const n of G.nodes){
+    const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    c.setAttribute('cx',n.x); c.setAttribute('cy',n.y); c.setAttribute('r',14);
+    c.setAttribute('class','node'); c.setAttribute('fill','#0b1020'); c.setAttribute('stroke','white'); c.setAttribute('stroke-width',2);
+    svg.appendChild(c);
+    const lab = document.createElementNS('http://www.w3.org/2000/svg','text');
+    lab.setAttribute('x',n.x); lab.setAttribute('y',n.y+5); lab.setAttribute('text-anchor','middle'); lab.setAttribute('fill','#cfe6ff');
+    lab.setAttribute('font-size','12'); lab.textContent = n.id;
+    svg.appendChild(lab);
+  }
+  buildEdgeListPanel();
+}
+
+/* ---------- Edge list UI (sorted) ---------- */
+let sortedEdges = []; // references to same edge objects
+function buildEdgeListPanel(){
+  edgeListEl.innerHTML='';
+  // sort by weight ascending
+  sortedEdges = G.edges.slice().sort((a,b)=>a.w-b.w);
+  sortedEdges.forEach((e, idx) => {
+    const li = document.createElement('li'); li.className='edge-item';
+    li.id = `list-edge-${e.u}-${e.v}`;
+    li.innerHTML = `<span>(${e.u}–${e.v})</span><strong>${e.w}</strong>`;
+    edgeListEl.appendChild(li);
+    // store element for quick access
+    e._listEl = li;
+  });
+}
+
+/* ---------- Visual helpers ---------- */
+function setEdgeVisual(e, state){
+  // state: 'consider','accept','reject','reset'
+  const id1 = `edge-${e.u}-${e.v}`, id2 = `edge-${e.v}-${e.u}`;
+  const line = document.getElementById(id1) || document.getElementById(id2);
+  // update svg
+  if(line){
+    line.classList.remove('edge-consider','edge-accept','edge-reject');
+    if(state==='consider') line.classList.add('edge-consider'), line.setAttribute('stroke','#ffd166');
+    if(state==='accept') line.classList.add('edge-accept'), line.setAttribute('stroke','#35d39e');
+    if(state==='reject') line.classList.add('edge-reject'), line.setAttribute('stroke','#ff6b6b');
+    if(state==='reset'){ line.setAttribute('stroke','#7d8aa5'); line.setAttribute('stroke-width',2); }
+  }
+  // update list
+  if(e._listEl){
+    e._listEl.classList.remove('consider','accept','reject');
+    if(state==='consider') e._listEl.classList.add('consider');
+    if(state==='accept') e._listEl.classList.add('accept');
+    if(state==='reject') e._listEl.classList.add('reject');
+    if(state==='reset') {/* nothing */}
+  }
+}
+
+/* ---------- Algorithm simulator (step engine) ---------- */
+let sim = null; // holds current simulator object
+let playing = false;
+let playTimer = null;
+
+function resetSim(){
+  if(playTimer) { clearTimeout(playTimer); playTimer=null; }
+  playing=false; sim=null;
+  // reset visuals
+  for(const e of G.edges) setEdgeVisual(e,'reset');
+  mstWeightEl.textContent = 'MST Weight: —';
+  appendLog('Simulation reset.');
+}
+
+function startAuto(){
+  if(!sim) initSim();
+  playing=true; document.getElementById('playBtn').textContent='Pause';
+  scheduleNext();
+}
+function pauseAuto(){
+  playing=false; document.getElementById('playBtn').textContent='Play';
+  if(playTimer) { clearTimeout(playTimer); playTimer=null; }
+}
+function scheduleNext(){
+  if(!playing || !sim) return;
+  const delay = parseInt(speedInput.value);
+  playTimer = setTimeout(async () => {
+    const done = await sim.step();
+    if(done){ pauseAuto(); appendLog('Finished.'); updateMSTWeight(); return; }
+    scheduleNext();
+  }, delay);
+}
+
+/* ---------- Kruskal Simulator ---------- */
+class KruskalSim {
+  constructor(G){
+    this.G = G;
+    // edges already sorted in UI; we will use sortedEdges
+    this.edges = sortedEdges;
+    this.i = 0;
+    this.n = G.nodes.length;
+    this.parent = Array(this.n).fill(0).map((_,i)=>i);
+    this.mst = [];
+    this.total = 0;
+    appendLog('Kruskal simulator initialized: edges sorted ascending.');
+  }
+  find(x){ return this.parent[x]===x?x:(this.parent[x]=this.find(this.parent[x])); }
+  union(a,b){ this.parent[this.find(b)] = this.find(a); }
+  async step(){
+    if(this.i>=this.edges.length || this.mst.length===this.n-1) return true;
+    const e = this.edges[this.i++];
+    // consider
+    appendLog(`Considering edge (${e.u}–${e.v}) weight=${e.w}`);
+    setEdgeVisual(e,'consider');
+    await sleep(600);
+    if(this.find(e.u)!==this.find(e.v)){
+      this.union(e.u,e.v);
+      this.mst.push(e); this.total += e.w;
+      appendLog(`Accepted (${e.u}–${e.v}). added to MST.`);
+      setEdgeVisual(e,'accept');
+      updateMSTWeight(this.total);
+    } else {
+      appendLog(`Rejected (${e.u}–${e.v}) — would form a cycle.`);
+      setEdgeVisual(e,'reject');
+    }
+    await sleep(400);
+    return (this.i>=this.edges.length || this.mst.length===this.n-1);
+  }
+}
+
+/* ---------- Prim Simulator ---------- */
+class PrimSim{
+  constructor(G){
+    this.G = G;
+    this.n = G.nodes.length;
+    this.inMST = Array(this.n).fill(false);
+    this.mst = [];
+    this.total = 0;
+    this.start = Math.floor(Math.random()*this.n);
+    this.inMST[this.start]=true;
+    appendLog(`Prim initialized. start vertex = ${this.start}`);
+    // highlight start node
+    highlightNode(this.start,true);
+  }
+  async step(){
+    // gather candidate edges crossing MST boundary
+    const cand = this.G.edges.filter(e => (this.inMST[e.u] && !this.inMST[e.v]) || (this.inMST[e.v] && !this.inMST[e.u]));
+    if(cand.length===0) return true;
+    // pick min
+    let best = cand.reduce((a,b)=>a.w<b.w?a:b);
+    appendLog(`Considering frontier edge (${best.u}–${best.v}) w=${best.w}`);
+    setEdgeVisual(best,'consider');
+    await sleep(600);
+    // accept best
+    this.mst.push(best); this.total += best.w;
+    this.inMST[best.u]=this.inMST[best.v]=true;
+    appendLog(`Selected (${best.u}–${best.v}). added to MST.`);
+    setEdgeVisual(best,'accept');
+    highlightNode(best.u,true); highlightNode(best.v,true);
+    updateMSTWeight(this.total);
+    await sleep(400);
+    return this.mst.length >= this.n-1;
+  }
+}
+
+/* ---------- Node highlight helper ---------- */
+function highlightNode(id, on){
+  // find the circle elements by matching coords (simpler than storing)
+  const circles = Array.from(svg.querySelectorAll('circle'));
+  for(const c of circles){
+    const cx = +c.getAttribute('cx'), cy = +c.getAttribute('cy');
+    const node = G.nodes.find(n=>Math.abs(n.x-cx)<0.5 && Math.abs(n.y-cy)<0.5);
+    if(node && node.id===id){
+      if(on) c.classList.add('node','active'); else c.classList.remove('active');
+    }
+  }
+}
+
+/* ---------- Initialize simulation (choose algorithm) ---------- */
+function initSim(){
+  resetSim();
+  const algo = document.getElementById('algo').value;
+  if(algo==='kruskal'){ sim = new KruskalSim(G); }
+  else { sim = new PrimSim(G); }
+}
+
+/* ---------- Controls binding ---------- */
+document.getElementById('genBtn').addEventListener('click', ()=>{
+  const n = parseInt(document.getElementById('nodesInput').value) || 8;
+  const p = parseFloat(document.getElementById('probInput').value) || 0.45;
+  const wmin = parseInt(document.getElementById('wmin').value) || 1;
+  const wmax = parseInt(document.getElementById('wmax').value) || Math.max(10,wmin);
+  generateGraph(n,p,wmin,wmax);
+  resetSim();
+});
+document.getElementById('resetBtn').addEventListener('click', resetSim);
+
+document.getElementById('playBtn').addEventListener('click', ()=>{
+  if(!G){ appendLog('Generate graph first.'); return; }
+  if(playing) pauseAuto(); else startAuto();
+});
+
+document.getElementById('stepBtn').addEventListener('click', async ()=>{
+  if(!G){ appendLog('Generate graph first.'); return; }
+  if(!sim) initSim();
+  const done = await sim.step();
+  if(done){ appendLog('Finished.'); updateMSTWeight(); }
+});
+
+/* ---------- calculate MST total on finish helper ---------- */
+function updateMSTWeight(total){
+  if(total!==undefined) mstWeightEl.textContent = `MST Weight: ${Math.round(total)}`;
+  else{
+    // attempt to compute sum of accepted edges by checking class names
+    let sum=0; for(const e of G.edges){
+      const id = `edge-${e.u}-${e.v}`; const line = document.getElementById(id) || document.getElementById(`edge-${e.v}-${e.u}`);
+      if(line && line.classList.contains('edge-accept')) sum += e.w;
+    }
+    mstWeightEl.textContent = `MST Weight: ${Math.round(sum)}`;
+  }
+}
+
+/* ---------- Continuous bubbles in background ---------- */
+const bubbleContainer = document.getElementById('bubbles');
+function spawnBubble(){
+  const b = document.createElement('div');
+  b.className='bubble';
+  const size = Math.random()*28 + 8;
+  b.style.width = b.style.height = size+'px';
+  b.style.left = (Math.random()*100) + '%';
+  b.style.background = `hsl(${Math.random()*360}, 70%, 70%)`;
+  bubbleContainer.appendChild(b);
+  setTimeout(()=>{ b.remove(); }, 6000);
+}
+setInterval(spawnBubble, 600);
+
+/* ---------- initial graph ---------- */
+generateGraph();
+
+</script>
+</body>
+</html>
